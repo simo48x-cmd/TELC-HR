@@ -10,6 +10,7 @@ import {
   Layers,
 } from 'lucide-react';
 import { HoerenExam, FilterCategory } from '../data/types';
+import { ALL_HOEREN_EXAMS, TEIL1_EXAMS, TEIL2_EXAMS, TEIL3_EXAMS } from '../data/hoerenData';
 import { VisualBubbleStrip } from './VisualBubbleStrip';
 
 interface InstantDecoderBarProps {
@@ -39,11 +40,11 @@ export const InstantDecoderBar: React.FC<InstantDecoderBarProps> = ({
   onOpenExamInSimulator,
   onOpenTrapGroup,
 }) => {
-  const filterTabs: { id: FilterCategory; label: string; count?: string }[] = [
-    { id: 'all', label: 'الكل (154)' },
-    { id: 'teil1', label: 'Teil 1 (52)' },
-    { id: 'teil2', label: 'Teil 2 (56)' },
-    { id: 'teil3', label: 'Teil 3 (46)' },
+  const filterTabs: { id: FilterCategory; label: string }[] = [
+    { id: 'all', label: `الكل (${ALL_HOEREN_EXAMS.length})` },
+    { id: 'teil1', label: `Teil 1 (${TEIL1_EXAMS.length})` },
+    { id: 'teil2', label: `Teil 2 (${TEIL2_EXAMS.length})` },
+    { id: 'teil3', label: `Teil 3 (${TEIL3_EXAMS.length})` },
     { id: 'new2026', label: '🔥 جديد 2026' },
     { id: 'traps', label: '⚠️ فخاخ الأساسي vs المعدل' },
     { id: 'bookmarked', label: '⭐ المفضلة واللي باقي ما حفظتش' },
@@ -62,7 +63,7 @@ export const InstantDecoderBar: React.FC<InstantDecoderBarProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => onSearchChange(e.target.value)}
-              placeholder="⚡ رادار 3 ثواني: اكتب أول كلمة بالألمانية، العربية، أو رقم الكود (مثال: luf, rol, bier, 24, 134890)..."
+              placeholder="⚡ رادار 3 ثواني: اكتب أول كلمة بالألمانية، العربية، أو رقم الكود (مثال: luf, rol, bier, 24, 347, 13489)..."
               className="w-full rounded-xl border border-emerald-500/40 bg-slate-900/95 py-2.5 pr-10 pl-10 text-sm text-white placeholder-slate-400 shadow-inner focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-500/25"
             />
             {isSearching && (

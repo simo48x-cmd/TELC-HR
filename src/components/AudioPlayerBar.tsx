@@ -9,8 +9,10 @@ import {
   RotateCcw,
   FastForward,
   CheckCircle2,
+  Headphones,
 } from 'lucide-react';
 import { HoerenExam } from '../data/types';
+import { OCI_BUCKET_BASE_URL, REAL_OCI_BUCKET_MP3S } from '../data/hoerenData';
 import {
   AudioSourceMode,
   speakGermanExamRadio,
@@ -28,31 +30,55 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   localAudioMap,
   onUploadLocalAudio,
 }) => {
-  const [sourceMode, setSourceMode] = useState<AudioSourceMode>('radio-tts');
+  const hasMappedOciAudio = Boolean(exam.audioSlug);
+  const [sourceMode, setSourceMode] = useState<AudioSourceMode>(
+    hasMappedOciAudio ? 'cloud-stream' : 'radio-tts'
+  );
+  const [selectedBucketFile, setSelectedBucketFile] = useState<string>(
+    exam.audioSlug || 'Lufthansa.mp3'
+  );
+  const [triedSecondaryFallback, setTriedSecondaryFallback] = useState<boolean>(false);
+  const [activeAudioUrl, setActiveAudioUrl] = useState<string>(
+    exam.audioSlug
+      ? `${OCI_BUCKET_BASE_URL}${exam.audioSlug}`
+      : `${OCI_BUCKET_BASE_URL}Lufthansa.mp3`
+  );
   const [isPlaying, setIsPlaying] = useState(false);
   const [speed, setSpeed] = useState<number>(1.0);
   const [progressPct, setProgressPct] = useState<number>(0);
   const [statusMessage, setStatusMessage] = useState<string>(
-    'راديو ألماني مدمج (de-DE) — خدام 100% بلا أنترنت وبلا API'
+    hasMappedOciAudio
+      ? `🎧 أوديو رسمي حقيقي جاهز: ${exam.audioSlug}`
+      : '🎙️ راديو ألماني مدمج (de-DE) — أو اختر MP3 من مكتبة الأوديو (56 ملف)'
   );
 
-  const htmlAudioRef = useRef<HTMLAudioElement | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
   const cancelTtsRef = useRef<(() => void) | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     stopAllPlayback();
     setProgressPct(0);
+    setTriedSecondaryFallback(false);
+
     if (localAudioMap[exam.id]) {
       setSourceMode('local-file');
-      setStatusMessage('ملف أوديو محلي جاهز للقراءة المباشرة');
+      setActiveAudioUrl(localAudioMap[exam.id]);
+      setStatusMessage('📂 ملف أوديو محلي جاهز للقراءة المباشرة');
+    } else if (exam.audioSlug) {
+      setSourceMode('cloud-stream');
+      setSelectedBucketFile(exam.audioSlug);
+      setActiveAudioUrl(`${OCI_BUCKET_BASE_URL}${exam.audioSlug}`);
+      setStatusMessage(`🎧 أوديو رسمي حقيقي مربوط تلقائياً: ${exam.audioSlug}`);
     } else {
-      setStatusMessage('راديو ألماني مدمج (de-DE) — خدام 100% مجاناً');
+      setSourceMode('radio-tts');
+      setStatusMessage('🎙️ راديو ألماني مدمج (de-DE) — أو اختر أي MP3 من مكتبة الـ 56 أوديو أعلاه');
     }
+
     return () => {
       stopAllPlayback();
     };
-  }, [exam.id]);
+  }, [exam.id, localAudioMap]);
 
   const stopAllPlayback = () => {
     if (cancelTtsRef.current) {
@@ -60,11 +86,44 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
       cancelTtsRef.current = null;
     }
     stopGermanExamRadio();
-    if (htmlAudioRef.current) {
-      htmlAudioRef.current.pause();
-      htmlAudioRef.current.currentTime = 0;
+    if (audioRef.current) {
+      audioRef.current.pause();
     }
     setIsPlaying(false);
+  };
+
+  const handleBucketFileSelect = (filename: string) => {
+    stopAllPlayback();
+    setSelectedBucketFile(filename);
+    setTriedSecondaryFallback(false);
+    const fullUrl = `${OCI_BUCKET_BASE_URL}${filename}`;
+    setActiveAudioUrl(fullUrl);
+    setSourceMode('cloud-stream');
+    setStatusMessage(`🎧 تم اختيار الأوديو الحقيقي: ${filename} — اضغط Play للاستماع`);
+  };
+
+  const handleAudioError = () => {
+    if (!isPlaying) return;
+
+    // Try secondary fallback for Lufthansa if primary fails
+    if (
+      !triedSecondaryFallback &&
+      exam.audioUrlFallback &&
+      exam.audioUrlFallback !== activeAudioUrl
+    ) {
+      setTriedSecondaryFallback(true);
+      setActiveAudioUrl(exam.audioUrlFallback);
+      setStatusMessage('🔄 جاري التشغيل من السيرفر الاحتياطي (telccfree.com)...');
+      setTimeout(() => {
+        audioRef.current?.play().catch(() => {});
+      }, 100);
+      return;
+    }
+
+    setIsPlaying(false);
+    setStatusMessage(
+      '⚠️ تعذر تحميل هاد الملف الصوتي حالياً — تقدر تختار ملف آخر من القائمة أو تستعمل الراديو الألماني المدمج (de-DE).'
+    );
   };
 
   const handlePlayToggle = () => {
@@ -95,21 +154,24 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
       return;
     }
 
-    // HTML5 <audio> playback for Cloud Stream or Local File
-    const audioEl = htmlAudioRef.current;
+    // Native HTML5 <audio> playback WITHOUT crossOrigin attribute or fetch()
+    const audioEl = audioRef.current;
     if (!audioEl) return;
 
-    const targetSrc =
+    const targetUrl =
       sourceMode === 'local-file' && localAudioMap[exam.id]
         ? localAudioMap[exam.id]
-        : exam.audioUrlPrimary;
+        : activeAudioUrl;
 
-    audioEl.src = targetSrc;
+    if (audioEl.src !== targetUrl) {
+      audioEl.src = targetUrl;
+    }
     audioEl.playbackRate = speed;
+
     setStatusMessage(
       sourceMode === 'local-file'
         ? '🎧 خدام من الملف المحلي ديالك...'
-        : '🌐 جاري الاتصال بـ telccfree.com / sahlab2.online...'
+        : `🎧 شغال مباشرة من سيرفر الأوديو الرسمي: ${selectedBucketFile}`
     );
 
     audioEl
@@ -118,33 +180,14 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
         setIsPlaying(true);
       })
       .catch(() => {
-        // Automatic fallback to built-in German Radio Synthesizer if external stream is offline/CORS-blocked
-        setSourceMode('radio-tts');
-        setStatusMessage(
-          '⚡ السيرفر الخارجي محجوب (CORS) — تم التحويل تلقائياً للراديو الألماني المدمج (de-DE)!'
-        );
-        setIsPlaying(true);
-        cancelTtsRef.current = speakGermanExamRadio(
-          exam,
-          speed,
-          () => setIsPlaying(true),
-          () => {
-            setIsPlaying(false);
-            setProgressPct(100);
-          },
-          (charIdx, totalLen) => {
-            if (totalLen > 0) {
-              setProgressPct(Math.min(99, Math.round((charIdx / totalLen) * 100)));
-            }
-          }
-        );
+        handleAudioError();
       });
   };
 
   const handleSpeedChange = (newSpeed: number) => {
     setSpeed(newSpeed);
-    if (htmlAudioRef.current) {
-      htmlAudioRef.current.playbackRate = newSpeed;
+    if (audioRef.current) {
+      audioRef.current.playbackRate = newSpeed;
     }
     if (isPlaying && sourceMode === 'radio-tts') {
       stopAllPlayback();
@@ -161,10 +204,10 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
   };
 
   const handleSeek = (deltaSec: number) => {
-    if (htmlAudioRef.current && sourceMode !== 'radio-tts') {
-      htmlAudioRef.current.currentTime = Math.max(
+    if (audioRef.current && sourceMode !== 'radio-tts') {
+      audioRef.current.currentTime = Math.max(
         0,
-        htmlAudioRef.current.currentTime + deltaSec
+        audioRef.current.currentTime + deltaSec
       );
     }
   };
@@ -174,34 +217,63 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
     if (!file) return;
     onUploadLocalAudio(exam.id, file);
     setSourceMode('local-file');
-    setStatusMessage(`✅ تم ربط الملف: ${file.name}`);
+    setStatusMessage(`✅ تم ربط الملف المحلي: ${file.name}`);
   };
 
   return (
-    <div className="rounded-xl border border-slate-700/80 bg-slate-900/90 p-3.5 shadow-lg">
+    <div className="rounded-xl border border-slate-700/80 bg-slate-900/90 p-3.5 shadow-lg space-y-3">
+      {/* Clean native <audio> element WITHOUT crossOrigin="anonymous" */}
       <audio
-        ref={htmlAudioRef}
+        ref={audioRef}
+        src={activeAudioUrl}
+        preload="metadata"
+        onError={handleAudioError}
         onTimeUpdate={() => {
-          const el = htmlAudioRef.current;
+          const el = audioRef.current;
           if (el && el.duration > 0) {
             setProgressPct(Math.round((el.currentTime / el.duration) * 100));
           }
         }}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
         onEnded={() => {
           setIsPlaying(false);
           setProgressPct(100);
+          setStatusMessage('✅ انتهى المقطع الصوتي الرسمي');
         }}
       />
 
+      {/* Top Row: Source Switcher + Speed */}
       <div className="flex flex-wrap items-center justify-between gap-2 pb-2.5 border-b border-slate-800">
-        {/* Source Mode Switcher */}
         <div className="flex items-center gap-1.5 flex-wrap">
           <button
             type="button"
             onClick={() => {
               stopAllPlayback();
+              setSourceMode('cloud-stream');
+              const fileToUse = exam.audioSlug || selectedBucketFile || 'Lufthansa.mp3';
+              setSelectedBucketFile(fileToUse);
+              setActiveAudioUrl(`${OCI_BUCKET_BASE_URL}${fileToUse}`);
+              setStatusMessage(`🎧 سيرفر الأوديو الرسمي (OCI): ${fileToUse}`);
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all ${
+              sourceMode === 'cloud-stream'
+                ? 'bg-blue-600 text-white shadow-sm'
+                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
+            }`}
+          >
+            <Globe className="w-3.5 h-3.5" />
+            <span>
+              {exam.audioSlug ? `سيرفر الأوديو (${exam.audioSlug})` : 'سيرفر الأوديو (56 MP3s)'}
+            </span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              stopAllPlayback();
               setSourceMode('radio-tts');
-              setStatusMessage('راديو ألماني مدمج (de-DE) — خدام 100% مجاناً');
+              setStatusMessage('🎙️ راديو ألماني مدمج (de-DE) — خدام 100% مجاناً');
             }}
             className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all ${
               sourceMode === 'radio-tts'
@@ -211,23 +283,6 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
           >
             <Radio className="w-3.5 h-3.5" />
             <span>راديو ألماني (de-DE)</span>
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              stopAllPlayback();
-              setSourceMode('cloud-stream');
-              setStatusMessage('رابط مباشر: telccfree.com / sahlab2.online');
-            }}
-            className={`inline-flex items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-xs font-bold transition-all ${
-              sourceMode === 'cloud-stream'
-                ? 'bg-blue-600 text-white shadow-sm'
-                : 'bg-slate-800 text-slate-300 hover:bg-slate-700'
-            }`}
-          >
-            <Globe className="w-3.5 h-3.5" />
-            <span>سيرفر الأوديو</span>
           </button>
 
           <button
@@ -270,8 +325,28 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
         </div>
       </div>
 
-      {/* Main Controls + Progress Bar */}
-      <div className="mt-3 flex items-center gap-3">
+      {/* 56 Real OCI Bucket MP3s Dropdown Selector */}
+      <div className="flex flex-col sm:flex-row sm:items-center gap-2 rounded-lg border border-blue-500/30 bg-slate-950/80 p-2.5">
+        <label className="flex items-center gap-1.5 text-xs font-extrabold text-blue-300 shrink-0">
+          <Headphones className="w-3.5 h-3.5" />
+          <span>🎧 مكتبة الأوديو الحقيقية (56 MP3s):</span>
+        </label>
+        <select
+          value={selectedBucketFile}
+          onChange={(e) => handleBucketFileSelect(e.target.value)}
+          dir="ltr"
+          className="w-full rounded-lg border border-slate-700 bg-slate-900 px-2.5 py-1.5 font-mono text-xs text-white focus:border-blue-400 focus:outline-none"
+        >
+          {REAL_OCI_BUCKET_MP3S.map((item) => (
+            <option key={item.filename} value={item.filename}>
+              {item.label} ({item.filename})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      {/* Main Play/Seek Controls + Progress Bar */}
+      <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={handlePlayToggle}
@@ -280,7 +355,7 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
               ? 'bg-rose-600 hover:bg-rose-500'
               : 'bg-emerald-600 hover:bg-emerald-500'
           }`}
-          title={isPlaying ? 'إيقاف الأوديو' : 'تشغيل الأوديو الألماني'}
+          title={isPlaying ? 'إيقاف الأوديو' : 'تشغيل الأوديو'}
         >
           {isPlaying ? <Square className="w-4 h-4 fill-current" /> : <Play className="w-4 h-4 fill-current" />}
         </button>
@@ -324,10 +399,10 @@ export const AudioPlayerBar: React.FC<AudioPlayerBarProps> = ({
       </div>
 
       {/* Expandable German Radio Transcript Preview */}
-      <details className="mt-2.5 group">
+      <details className="group">
         <summary className="cursor-pointer list-none text-xs font-semibold text-slate-400 hover:text-emerald-300 flex items-center gap-1.5">
           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-          <span>عرض نص الراديو الألماني الكامل (Hörtext-Transkript)</span>
+          <span>عرض نص الجمل الصحيحة بالألمانية (Hörtext-Zusammenfassung)</span>
         </summary>
         <div
           dir="ltr"

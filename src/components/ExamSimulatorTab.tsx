@@ -198,9 +198,9 @@ export const ExamSimulatorTab: React.FC<ExamSimulatorTabProps> = ({
       {mode === 'single' ? (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3 rounded-2xl border border-slate-800 bg-slate-900/70 p-3.5">
           {[
-            { label: 'Teil 1 — Globalverstehen (52)', list: TEIL1_EXAMS, teil: 1 },
-            { label: 'Teil 2 — Detailverstehen (56)', list: TEIL2_EXAMS, teil: 2 },
-            { label: 'Teil 3 — Selektives Verstehen (46)', list: TEIL3_EXAMS, teil: 3 },
+            { label: `Teil 1 — Globalverstehen 41–45 (${TEIL1_EXAMS.length})`, list: TEIL1_EXAMS, teil: 1 },
+            { label: `Teil 2 — Detailverstehen 46–55 (${TEIL2_EXAMS.length})`, list: TEIL2_EXAMS, teil: 2 },
+            { label: `Teil 3 — Selektives Verstehen 56–60 (${TEIL3_EXAMS.length})`, list: TEIL3_EXAMS, teil: 3 },
           ].map((group) => (
             <div key={group.teil}>
               <label className="block text-xs font-bold text-slate-400 mb-1" dir="ltr">
